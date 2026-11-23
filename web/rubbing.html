@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>拓片详情 · 字形字典</title>
+<style>
+  :root {
+    --bg: #14161a; --panel: #1d2026; --line: #2c313a;
+    --fg: #d8d4c8; --dim: #8a8577; --accent: #c8a45c; --accent2: #7fa6c9;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 14px/1.6 "Songti SC", "Noto Serif CJK SC", "SimSun", serif;
+  }
+  header { padding: 24px 40px 16px; border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 20px; margin: 0 0 4px; font-weight: 600; letter-spacing: 1px; }
+  header a { color: var(--accent2); text-decoration: none; font-size: 13px; }
+  main { padding: 20px 40px 60px; display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+  @media (max-width: 1100px) { main { grid-template-columns: 1fr; } }
+  .cards { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 18px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+    padding: 10px 14px; min-width: 130px;
+  }
+  .card .k { color: var(--dim); font-size: 12px; }
+  .card .v { font-size: 18px; margin-top: 2px; }
+  .bar { display: flex; height: 14px; border-radius: 4px; overflow: hidden; margin: 6px 0 4px; }
+  .bar div { height: 100%; }
+  .legend { display: flex; gap: 16px; font-size: 12px; color: var(--dim); flex-wrap: wrap; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; }
+  h2 { font-size: 15px; font-weight: 600; letter-spacing: 1px; margin: 22px 0 10px; }
+  #dict { display: flex; flex-wrap: wrap; gap: 8px; }
+  .glyph {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 4px;
+    padding: 6px; cursor: pointer; text-align: center;
+  }
+  .glyph:hover { border-color: var(--accent); }
+  .glyph.sel { border-color: var(--accent); background: #262a32; }
+  .glyph canvas { display: block; image-rendering: pixelated; }
+  .glyph .cnt { font-size: 11px; color: var(--dim); margin-top: 4px; }
+  #mapWrap { position: relative; display: inline-block; max-width: 100%; }
+  #map { max-width: 100%; display: block; border: 1px solid var(--line); }
+  #overlay { position: absolute; left: 0; top: 0; pointer-events: none; }
+  .mapHint { color: var(--dim); font-size: 12px; margin-top: 6px; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">拓片详情</h1>
+  <a href="index.html">← 返回总目</a> · <a id="viewLink" href="#">解压浏览 →</a>
+</header>
+<main>
+  <section>
+    <div class="cards" id="cards"></div>
+    <h2>码流构成</h2>
+    <div class="bar" id="bar"></div>
+    <div class="legend" id="legend"></div>
+    <h2>字形字典（点击字形查看全部出现位置）</h2>
+    <div id="dict"></div>
+  </section>
+  <section>
+    <h2>出现位置映射</h2>
+    <div id="mapWrap">
+      <canvas id="map"></canvas>
+      <canvas id="overlay"></canvas>
+    </div>
+    <div class="mapHint" id="mapHint">未选中字形 — 显示全部实例（灰）</div>
+  </section>
+</main>
+<script type="module">
+const name = new URLSearchParams(location.search).get('name');
+const meta = await (await fetch(`data/${encodeURIComponent(name)}.json`)).json();
+document.getElementById('title').textContent = `${meta.name} · ${meta.width}×${meta.height}`;
+document.getElementById('viewLink').href = `view.html?name=${encodeURIComponent(name)}`;
+
+const fmt = (n) => n >= 1048576 ? (n/1048576).toFixed(2)+' MiB' : n >= 1024 ? (n/1024).toFixed(1)+' KiB' : n+' B';
+const cards = [
+  ['原始大小', fmt(meta.origBytes)],
+  ['RUB 大小', fmt(meta.rubBytes)],
+  ['压缩率', meta.ratioRaw.toFixed(2)+'×'],
+  ['PNG 大小', fmt(meta.pngBytes)],
+  ['对 PNG', meta.ratioVsPng.toFixed(2)+'×'],
+  ['分层阈值', meta.threshold],
+  ['连通块', meta.numComponents],
+  ['字典字形', meta.numGlyphs],
+  ['散实例', meta.numRawInstances],
+  ['编码', (meta.encodeMs/1000).toFixed(2)+'s'],
+  ['解码', (meta.decodeMs/1000).toFixed(2)+'s'],
+];
+const cardsEl = document.getElementById('cards');
+for (const [k, v] of cards) {
+  const d = document.createElement('div');
+  d.className = 'card';
+  d.innerHTML = `<div class="k">${k}</div><div class="v">${v}</div>`;
+  cardsEl.appendChild(d);
+}
+
+// section breakdown bar
+const secs = [
+  ['纸层(背景)', meta.sections.paper, '#7fa6c9'],
+  ['墨值(前景)', meta.sections.ink, '#c8a45c'],
+  ['实例', meta.sections.instances, '#9fc48a'],
+  ['字典', meta.sections.dict, '#c98a7f'],
+  ['熵表', meta.sections.tables ?? 0, '#8a8577'],
+];
+const total = secs.reduce((s, x) => s + x[1], 0);
+const bar = document.getElementById('bar');
+const legend = document.getElementById('legend');
+for (const [label, size, color] of secs) {
+  const d = document.createElement('div');
+  d.style.cssText = `width:${(size/total*100).toFixed(2)}%;background:${color}`;
+  d.title = `${label} ${fmt(size)}`;
+  bar.appendChild(d);
+  const l = document.createElement('span');
+  l.innerHTML = `<i style="background:${color}"></i>${label} ${fmt(size)} (${(size/total*100).toFixed(1)}%)`;
+  legend.appendChild(l);
+}
+
+// dictionary grid
+const glyphs = [...meta.glyphs].sort((a, b) => b.count - a.count);
+const dictEl = document.getElementById('dict');
+let selected = -1;
+
+function unpackBits(b64, n) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const out = new Uint8Array(n);
+  for (let i = 0; i < n; i++) out[i] = (bytes[i >> 3] >> (7 - (i & 7))) & 1;
+  return out;
+}
+
+function drawGlyph(canvas, g, scale) {
+  const bits = unpackBits(g.bitmap, g.w * g.h);
+  canvas.width = g.w; canvas.height = g.h;
+  canvas.style.width = (g.w * scale) + 'px';
+  canvas.style.height = (g.h * scale) + 'px';
+  const ctx = canvas.getContext('2d');
+  const im = ctx.createImageData(g.w, g.h);
+  for (let i = 0; i < bits.length; i++) {
+    const v = bits[i] ? 230 : 30;
+    im.data[i*4] = im.data[i*4+1] = im.data[i*4+2] = v;
+    im.data[i*4+3] = 255;
+  }
+  ctx.putImageData(im, 0, 0);
+}
+
+for (const g of glyphs) {
+  const d = document.createElement('div');
+  d.className = 'glyph';
+  d.dataset.id = g.id;
+  const c = document.createElement('canvas');
+  const scale = Math.max(1, Math.min(3, Math.round(64 / Math.max(g.w, g.h))));
+  drawGlyph(c, g, scale);
+  const cnt = document.createElement('div');
+  cnt.className = 'cnt';
+  cnt.textContent = `×${g.count}`;
+  d.appendChild(c); d.appendChild(cnt);
+  d.onclick = () => {
+    selected = selected === g.id ? -1 : g.id;
+    document.querySelectorAll('.glyph').forEach(el =>
+      el.classList.toggle('sel', +el.dataset.id === selected));
+    drawOverlay();
+  };
+  dictEl.appendChild(d);
+}
+
+// occurrence map
+const map = document.getElementById('map');
+const overlay = document.getElementById('overlay');
+const mapW = meta.thumbW, mapH = meta.thumbH;
+map.width = mapW; map.height = mapH;
+overlay.width = mapW; overlay.height = mapH;
+overlay.style.width = map.style.width = '';
+{
+  const thumb = Uint8Array.from(atob(meta.thumb), (ch) => ch.charCodeAt(0));
+  const ctx = map.getContext('2d');
+  const im = ctx.createImageData(mapW, mapH);
+  for (let i = 0; i < thumb.length; i++) {
+    im.data[i*4] = im.data[i*4+1] = im.data[i*4+2] = thumb[i];
+    im.data[i*4+3] = 255;
+  }
+  ctx.putImageData(im, 0, 0);
+}
+
+function drawOverlay() {
+  const ctx = overlay.getContext('2d');
+  ctx.clearRect(0, 0, mapW, mapH);
+  const kx = mapW / meta.width, ky = mapH / meta.height;
+  let shown = 0;
+  for (const inst of meta.instances) {
+    const hit = inst.g === selected;
+    if (selected >= 0 && !hit) continue;
+    shown++;
+    ctx.strokeStyle = hit ? 'rgba(230,90,60,0.95)' : 'rgba(160,160,160,0.35)';
+    ctx.lineWidth = hit ? 1.5 : 1;
+    ctx.strokeRect(inst.x * kx, inst.y * ky, Math.max(1.5, inst.w * kx), Math.max(1.5, inst.h * ky));
+  }
+  document.getElementById('mapHint').textContent =
+    selected >= 0 ? `字形 #${selected} — ${shown} 处出现` : `未选中字形 — 全部 ${shown} 个实例`;
+}
+drawOverlay();
+</script>
+</body>
+</html>

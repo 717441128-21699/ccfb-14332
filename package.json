@@ -1,0 +1,17 @@
+{
+  "name": "rubarchive",
+  "version": "0.1.0",
+  "description": "Lossless archival compressor for stone-rubbing scans (ink/paper layer separation + glyph dictionary + rANS)",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "build:test": "tsc -p tsconfig.test.json",
+    "test": "npm run build:test && node --test \"dist-test/test/*.test.js\"",
+    "cli": "npm run build --silent && node dist/cli.js",
+    "serve": "node serve.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0"
+  }
+}

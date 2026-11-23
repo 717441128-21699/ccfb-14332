@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>拓片存档 · 总目</title>
+<style>
+  :root {
+    --bg: #14161a; --panel: #1d2026; --line: #2c313a;
+    --fg: #d8d4c8; --dim: #8a8577; --accent: #c8a45c; --accent2: #7fa6c9;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 14px/1.6 "Songti SC", "Noto Serif CJK SC", "SimSun", serif;
+  }
+  header {
+    padding: 28px 40px 18px; border-bottom: 1px solid var(--line);
+    display: flex; align-items: baseline; gap: 16px;
+  }
+  header h1 { font-size: 22px; margin: 0; font-weight: 600; letter-spacing: 2px; }
+  header .sub { color: #8a8577; font-size: 13px; }
+  main { padding: 24px 40px 60px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 10px 12px; border-bottom: 1px solid var(--line); text-align: right; }
+  th { color: #8a8577; font-weight: normal; font-size: 12px; letter-spacing: 1px; }
+  td.name, th.name { text-align: left; }
+  td.name a { color: var(--accent); text-decoration: none; font-size: 15px; }
+  td.name a:hover { text-decoration: underline; }
+  .ratio-good { color: #9fc48a; }
+  .ratio-warn { color: #c98a7f; }
+  .actions a { color: var(--accent2); text-decoration: none; margin-left: 12px; font-size: 13px; }
+  .actions a:hover { text-decoration: underline; }
+  .empty { color: #8a8577; padding: 40px 0; text-align: center; }
+  .summary { color: #8a8577; font-size: 13px; margin-bottom: 14px; }
+  .summary b { color: var(--fg); font-weight: 600; }
+</style>
+</head>
+<body>
+<header>
+  <h1>碑帖拓片存档</h1>
+  <span class="sub">无损压缩 · 墨纸分层 · 字形字典 · 逐像素可还原</span>
+</header>
+<main>
+  <div class="summary" id="summary"></div>
+  <table>
+    <thead>
+      <tr>
+        <th class="name">编号</th><th>尺寸</th><th>原始</th><th>RUB</th><th>PNG</th>
+        <th>压缩率</th><th>对 PNG</th><th>字形</th><th>实例</th>
+        <th>编码</th><th>解码</th><th></th>
+      </tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <div class="empty" id="empty" hidden>存档为空 — 用 <code>node dist/cli.js archive &lt;in.pgm&gt; &lt;name&gt;</code> 入库</div>
+</main>
+<script type="module">
+const fmt = (n) => n >= 1048576 ? (n/1048576).toFixed(2)+' MiB' : n >= 1024 ? (n/1024).toFixed(1)+' KiB' : n+' B';
+const res = await fetch('data/manifest.json').catch(() => null);
+const manifest = res && res.ok ? await res.json() : { rubbings: [] };
+const rows = document.getElementById('rows');
+const list = manifest.rubbings;
+document.getElementById('empty').hidden = list.length > 0;
+let totRaw = 0, totRub = 0, totPng = 0;
+for (const r of list) {
+  totRaw += r.origBytes; totRub += r.rubBytes; totPng += r.pngBytes;
+  const tr = document.createElement('tr');
+  const ratioCls = r.ratioVsPng >= 1 ? 'ratio-good' : 'ratio-warn';
+  tr.innerHTML = `
+    <td class="name"><a href="rubbing.html?name=${encodeURIComponent(r.name)}">${r.name}</a></td>
+    <td>${r.width}×${r.height}</td>
+    <td>${fmt(r.origBytes)}</td>
+    <td>${fmt(r.rubBytes)}</td>
+    <td>${fmt(r.pngBytes)}</td>
+    <td>${r.ratioRaw.toFixed(2)}×</td>
+    <td class="${ratioCls}">${r.ratioVsPng.toFixed(2)}×</td>
+    <td>${r.numGlyphs}</td>
+    <td>${r.numInstances}</td>
+    <td>${(r.encodeMs/1000).toFixed(2)}s</td>
+    <td>${(r.decodeMs/1000).toFixed(2)}s</td>
+    <td class="actions">
+      <a href="rubbing.html?name=${encodeURIComponent(r.name)}">字典</a>
+      <a href="view.html?name=${encodeURIComponent(r.name)}">解压浏览</a>
+    </td>`;
+  rows.appendChild(tr);
+}
+if (list.length) {
+  document.getElementById('summary').innerHTML =
+    `共 <b>${list.length}</b> 件 · 原始 <b>${fmt(totRaw)}</b> · RUB <b>${fmt(totRub)}</b> · ` +
+    `PNG 需 <b>${fmt(totPng)}</b> · 整体压缩率 <b>${(totRaw/totRub).toFixed(2)}×</b> · ` +
+    `对 PNG <b>${(totPng/totRub).toFixed(2)}×</b>`;
+}
+</script>
+</body>
+</html>

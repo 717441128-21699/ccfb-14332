@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>解压浏览</title>
+<style>
+  :root {
+    --bg: #14161a; --panel: #1d2026; --line: #2c313a;
+    --fg: #d8d4c8; --dim: #8a8577; --accent: #c8a45c; --accent2: #7fa6c9;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 14px/1.6 "Songti SC", "Noto Serif CJK SC", "SimSun", serif;
+  }
+  header {
+    padding: 16px 28px; border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+  }
+  header h1 { font-size: 17px; margin: 0; font-weight: 600; }
+  header a { color: var(--accent2); text-decoration: none; font-size: 13px; }
+  #status { color: var(--dim); font-size: 13px; }
+  #progressBar {
+    flex: 1; min-width: 160px; height: 8px; background: var(--panel);
+    border-radius: 4px; overflow: hidden;
+  }
+  #progressFill { height: 100%; width: 0; background: var(--accent); transition: width .15s; }
+  #wrap { padding: 18px 28px 40px; overflow: auto; }
+  canvas {
+    display: block; margin: 0 auto; max-width: 100%;
+    background: #000; border: 1px solid var(--line);
+    image-rendering: auto;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">解压浏览</h1>
+  <a href="index.html">← 总目</a>
+  <a id="dictLink" href="#">字形字典</a>
+  <div id="progressBar"><div id="progressFill"></div></div>
+  <span id="status">载入中…</span>
+</header>
+<div id="wrap"><canvas id="cv"></canvas></div>
+<script type="module">
+const name = new URLSearchParams(location.search).get('name');
+document.getElementById('dictLink').href = `rubbing.html?name=${encodeURIComponent(name)}`;
+const statusEl = document.getElementById('status');
+const fill = document.getElementById('progressFill');
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+
+statusEl.textContent = '下载码流…';
+const buf = await (await fetch(`data/${encodeURIComponent(name)}.rub`)).arrayBuffer();
+
+const worker = new Worker('worker.js', { type: 'module' });
+worker.onmessage = (e) => {
+  const m = e.data;
+  if (m.type === 'header') {
+    cv.width = m.width; cv.height = m.height;
+    document.getElementById('title').textContent = `${name} · ${m.width}×${m.height}`;
+    statusEl.textContent = '解码中…';
+  } else if (m.type === 'tile') {
+    const px = new Uint8Array(m.pixels);
+    const im = ctx.createImageData(m.tw, m.th);
+    for (let i = 0, j = 0; i < px.length; i++, j += 4) {
+      im.data[j] = im.data[j+1] = im.data[j+2] = px[i];
+      im.data[j+3] = 255;
+    }
+    ctx.putImageData(im, m.x0, m.y0);
+    fill.style.width = ((m.done / m.total) * 100).toFixed(1) + '%';
+    statusEl.textContent = `解码中… ${m.done}/${m.total} 块`;
+  } else if (m.type === 'done') {
+    fill.style.width = '100%';
+    statusEl.textContent =
+      `解码完成 · ${m.width}×${m.height} · 耗时 ${(m.ms/1000).toFixed(2)}s` +
+      (m.ms <= 3000 ? '（达标 ≤3s）' : '（超过 3s 目标）');
+    worker.terminate();
+  } else if (m.type === 'error') {
+    statusEl.textContent = '解码失败: ' + m.message;
+  }
+};
+worker.postMessage(buf, [buf]);
+</script>
+</body>
+</html>
